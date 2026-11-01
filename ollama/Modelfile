@@ -1,0 +1,6 @@
+# Priya's LLM: non-thinking Qwen3-4B with an explicit context window.
+# Ollama's OpenAI-compatible /v1 endpoint cannot set num_ctx per request,
+# so we bake it into a derived model instead of trusting the default.
+FROM qwen3:4b-instruct
+PARAMETER num_ctx 4096
+PARAMETER temperature 0.4
