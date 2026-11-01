@@ -14,3 +14,7 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "")
 
 STT_BACKEND = os.getenv("STT_BACKEND", "local")  # local | gnani
 GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
+
+TTS_BACKEND = os.getenv("TTS_BACKEND", "local")  # local (Kokoro) | gnani
+GNANI_TTS_VOICE = os.getenv("GNANI_TTS_VOICE", "")  # empty = Gnani's default voice
+LATENCY_LOG = os.getenv("LATENCY_LOG", "logs/latency.jsonl")

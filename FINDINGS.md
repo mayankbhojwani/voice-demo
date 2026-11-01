@@ -49,3 +49,13 @@ User's guesses, in ms, from end of speech:
 - LLM first token: 1000
 - TTS first audio: 500
 - Total: not given (sum of the three = 1510)
+
+### M3: Voice out + per-turn latency log
+- Pipeline: mic -> STT -> user aggregator (VAD + Smart Turn) -> LLM -> TTS -> speakers. `TTS_BACKEND=local|gnani` (Kokoro or Gnani WebSocket TTS).
+- `LatencyObserver` (`metrics.py`) watches frames and writes `logs/latency.jsonl`; `scripts/summarize_latency.py` prints median/p90 per stage next to my guesses.
+- Design finding: `stt_ms` is measured from when you went quiet (VAD stop time minus its 0.2 s `stop_secs`), so any VAD-based setup has a floor of about 200 ms before STT can even start. My 10 ms guess ignored that.
+- Hidden stage I added: `turn_wait_ms` = STT final -> LLM request. Smart Turn / speech timeout waits here before deciding you are done (default speech timeout is 0.6 s).
+- `tts_first_audio_ms` is measured from the first LLM token, so it includes Pipecat waiting for a full sentence before sending text to TTS.
+- Interruptions deliberately off in M3 (`enable_interruptions=False`); M4 turns them on. Without headphones Priya hears herself.
+- Not yet verified with real audio: Kokoro first-run download and the Gnani TTS voice name.
+- _Your measured numbers vs guesses, and what surprised you:_
