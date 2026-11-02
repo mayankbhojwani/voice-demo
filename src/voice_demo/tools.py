@@ -5,8 +5,10 @@ the customer being called, and book_callback refuses until that has happened. Th
 supplies a customer id.
 
 Every call and every failure goes to logs/tool_events.jsonl. Failure types logged:
-  bad_args, wrong_digits, too_many_attempts, not_verified, invalid_slot, slot_taken, repeated_call
-  (from the handlers); bad_json, unknown_tool (Pipecat warnings, caught by a log sink);
+  bad_args, wrong_digits, too_many_attempts, not_verified, invalid_slot, slot_taken, repeated_call,
+  bad_end_reason, end_reason_mismatch (from the handlers; repeated_call skips a customer re-saying
+  digits we rejected);
+  how each call ended is a "call_end" event with its reason; bad_json, unknown_tool (Pipecat warnings, caught by a log sink);
   leaked_call_syntax, claimed_booking_without_tool (from ToolWatcher, which reads the spoken text).
 """
 
@@ -19,13 +21,31 @@ from pathlib import Path
 from loguru import logger
 from pipecat.adapters.llm.schemas.function_schema import FunctionSchema
 from pipecat.adapters.llm.schemas.tools_schema import ToolsSchema
-from pipecat.frames.frames import Frame, LLMFullResponseEndFrame, LLMTextFrame
+from pipecat.frames.frames import (
+    EndWorkerFrame,
+    Frame,
+    FunctionCallResultProperties,
+    LLMFullResponseEndFrame,
+    LLMTextFrame,
+    TTSSpeakFrame,
+)
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 DATA = Path(__file__).resolve().parents[2] / "data" / "customers.json"
 EVENTS_LOG = Path("logs/tool_events.jsonl")
 SLOTS = ("morning", "afternoon", "evening")
 MAX_VERIFY_ATTEMPTS = 3
+
+# Why a call can end, and what Priya says. Scripted so the exit is one clean sentence and costs no LLM call.
+GOODBYES = {
+    "callback_booked": "Thank you, {first}. Our advisor will call you then. Have a great day!",
+    "declined": "No problem, {first}. Thank you for your time. Have a great day!",
+    "busy": "Understood, we will try you another time. Thank you, and have a great day!",
+    "wrong_person": "Sorry for the trouble. Have a good day!",
+    "verification_failed": "I am sorry, I could not verify your details, so I cannot continue on this call. Thank you for your time. Goodbye.",
+    "other": "Thank you for your time. Goodbye.",
+}
+END_REASONS = tuple(GOODBYES)
 
 
 def spoken(d: date) -> str:
@@ -57,6 +77,7 @@ class CallSession:
         self.verified = False
         self.failed_attempts = 0
         self.bookings = []
+        self.ended = False
         self._last_call = None
 
     # -- helpers -------------------------------------------------------------------------------
@@ -70,16 +91,17 @@ class CallSession:
         log_event("failure", tool=tool, args=args, type=ftype, detail=message)
         return {"error": ftype, "message": message}
 
-    def _seen_before(self, tool, args):
+    def _seen_before(self, tool, args, retry_expected=False):
         repeated = self._last_call == (tool, json.dumps(args, sort_keys=True))
         self._last_call = (tool, json.dumps(args, sort_keys=True))
-        if repeated:
+        # A customer repeating digits we rejected is a normal retry, not the model looping.
+        if repeated and not retry_expected:
             log_event("failure", tool=tool, args=args, type="repeated_call", detail="identical call twice in a row")
         return repeated
 
     # -- tools ---------------------------------------------------------------------------------
     def lookup_policy(self, args: dict) -> dict:
-        self._seen_before("lookup_policy", args)
+        self._seen_before("lookup_policy", args, retry_expected=self.failed_attempts > 0 and not self.verified)
         digits = args.get("policy_last4")
         if not isinstance(digits, str) or not re.fullmatch(r"\d{4}", digits.strip()):
             return self._fail("lookup_policy", args, "bad_args",
@@ -120,13 +142,47 @@ class CallSession:
         return {"confirmed": True, "date": day, "slot": slot,
                 "when_spoken": f"{spoken(date.fromisoformat(day))}, {slot}"}
 
+    def end_call(self, args: dict) -> tuple[str, str]:
+        """Pick the end-of-call reason and the scripted goodbye; log how the call ended."""
+        reason = args.get("reason")
+        if reason not in END_REASONS:
+            log_event("failure", tool="end_call", args=args, type="bad_end_reason", detail=f"reason must be one of {list(END_REASONS)}")
+            reason = "other"
+        elif reason == "callback_booked" and not self.bookings:
+            log_event("failure", tool="end_call", args=args, type="end_reason_mismatch", detail="said callback_booked but nothing was booked")
+            reason = "other"
+        self.ended = True
+        log_event("call_end", reason=reason, verified=self.verified, bookings=len(self.bookings),
+                  failed_attempts=self.failed_attempts)
+        return reason, GOODBYES[reason].format(first=self.customer["name"].split()[0])
+
     # -- wiring --------------------------------------------------------------------------------
     def tools_schema(self) -> ToolsSchema:
+        async def hang_up(params, reason, goodbye):
+            # Code says the goodbye (no extra LLM round trip, no chance of it being cut in half), then
+            # EndWorkerFrame closes the pipeline after the queued speech has been played.
+            say = TTSSpeakFrame(goodbye)
+            say.interruptible = False
+            await params.llm.push_frame(say)
+            await params.llm.push_frame(EndWorkerFrame(reason=reason))
+
         async def lookup(params):
-            await params.result_callback(self.lookup_policy(params.arguments))
+            result = self.lookup_policy(params.arguments)
+            if "error" in result and self.failed_attempts >= MAX_VERIFY_ATTEMPTS:
+                # Third wrong attempt: end now instead of asking the model for a fourth try.
+                reason, goodbye = self.end_call({"reason": "verification_failed"})
+                await params.result_callback(result, properties=FunctionCallResultProperties(run_llm=False))
+                await hang_up(params, reason, goodbye)
+                return
+            await params.result_callback(result)
 
         async def book(params):
             await params.result_callback(self.book_callback(params.arguments))
+
+        async def end(params):
+            reason, goodbye = self.end_call(params.arguments)
+            await params.result_callback({"ended": True}, properties=FunctionCallResultProperties(run_llm=False))
+            await hang_up(params, reason, goodbye)
 
         return ToolsSchema(standard_tools=[
             FunctionSchema(
@@ -143,6 +199,12 @@ class CallSession:
                     "slot": {"type": "string", "enum": list(SLOTS), "description": "Part of the day"},
                 },
                 required=["date", "slot"], handler=book),
+            FunctionSchema(
+                name="end_call",
+                description="End the call. A goodbye is spoken for you, so do not say goodbye yourself. Use when the "
+                            "customer declined, is busy, is the wrong person, or after a booked callback when they need nothing more.",
+                properties={"reason": {"type": "string", "enum": list(END_REASONS), "description": "Why the call is ending"}},
+                required=["reason"], handler=end),
         ])
 
 

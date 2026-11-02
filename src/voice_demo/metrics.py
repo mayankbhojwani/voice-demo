@@ -28,7 +28,6 @@ from pipecat.frames.frames import (
 from pipecat.metrics.metrics import LLMUsageMetricsData, TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 
-
 def _ms(later, earlier):
     if later is None or earlier is None:
         return None
