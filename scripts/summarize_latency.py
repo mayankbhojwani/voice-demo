@@ -29,7 +29,12 @@ def main():
         groups[(r["stt_backend"], r["tts_backend"], r["llm_model"])].append(r)
 
     for (stt, tts, model), rows in groups.items():
-        print(f"\nSTT={stt}  TTS={tts}  LLM={model}  ({len(rows)} turns)")
+        # A turn only counts if Priya actually started speaking; other log lines are LLM calls that
+        # produced no audio (empty turns, cut-offs) and would skew per-stage counts.
+        complete = [r for r in rows if r.get("total_ms") is not None]
+        print(f"\nSTT={stt}  TTS={tts}  LLM={model}  ({len(complete)} complete turns, "
+              f"{len(rows) - len(complete)} incomplete log lines ignored)")
+        rows = complete
         print(f"{'stage':<20}{'n':>4}{'median':>10}{'p90':>10}{'my guess':>10}")
         for s in STAGES:
             vals = [r[s] for r in rows if r.get(s) is not None]

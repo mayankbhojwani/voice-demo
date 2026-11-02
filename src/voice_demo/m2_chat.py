@@ -26,7 +26,6 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
 from voice_demo.llm import make_llm
-from voice_demo.prompts import SYSTEM_PROMPT
 from voice_demo.stt import make_stt
 
 
@@ -62,7 +61,7 @@ async def main():
     stt = make_stt()
     llm = make_llm()
 
-    context = LLMContext([{"role": "system", "content": SYSTEM_PROMPT}])
+    context = LLMContext()
     aggregators = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(

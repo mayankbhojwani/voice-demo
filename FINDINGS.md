@@ -19,9 +19,9 @@ A write-up of what I learned building a local voice agent ("Priya" from SafeShie
 
 | Stage | My guess (ms) | Measured median (ms) |
 |---|---|---|
-| STT (end of speech -> final transcript) | 10 | |
-| LLM first token | 1000 | |
-| TTS first audio | 500 | |
+| STT (end of speech -> final transcript) | 10 | 714 (p90 854), n=5, Gnani |
+| LLM first token | 1000 | 2497 (p90 5211), n=5 |
+| TTS first audio | 500 | 3175 (p90 6312), n=5, Kokoro local |
 
 ## Milestone notes
 
@@ -59,3 +59,8 @@ User's guesses, in ms, from end of speech:
 - Interruptions deliberately off in M3 (`enable_interruptions=False`); M4 turns them on. Without headphones Priya hears herself.
 - Not yet verified with real audio: Kokoro first-run download and the Gnani TTS voice name.
 - _Your measured numbers vs guesses, and what surprised you:_
+- **Measured (first run, Gnani STT + Kokoro TTS + local qwen3, n=5 complete turns):** stt 714 ms, turn_wait 349 ms, LLM first token 2497 ms, TTS first audio 3175 ms, total 6638 ms median (p90 12033 ms). All three guesses were too low; STT was off by ~70x.
+- **Variance is the real story:** the best turn took 1.4 s end to end, the worst 12 s. The same prompt gave 276 ms vs 5164 ms of LLM generation. My hypothesis, not yet tested: Ollama and Kokoro compete for CPU/GPU and memory on an 8 GB M2, and local TTS may also stall the event loop that timestamps the frames. Test: rerun with `TTS_BACKEND=gnani` and compare.
+- `tok_per_s` is unreliable here (7 to 83) for the same reason: it is computed from frame arrival times, not Ollama's own timing.
+- **Logger finding:** 13 of 18 log lines were incomplete turns (an LLM request that produced no audio, or a second request after Priya spoke). I do not yet know why; candidates are Gnani emitting extra or empty transcripts, or Pipecat re-prompting after an empty turn. The summary now counts only turns where Priya spoke.
+- `LLMContext([system...])` is deprecated in Pipecat 1.9+; the prompt now goes in the LLM service's `system_instruction`.

@@ -1,6 +1,7 @@
 """The one place that knows which LLM backend is in use."""
 
 from voice_demo import config
+from voice_demo.prompts import SYSTEM_PROMPT
 
 
 def make_llm():
@@ -9,7 +10,9 @@ def make_llm():
 
         return OLLamaLLMService(
             base_url=config.OLLAMA_BASE_URL,
-            settings=OLLamaLLMService.Settings(model=config.OLLAMA_MODEL),
+            settings=OLLamaLLMService.Settings(
+                model=config.OLLAMA_MODEL, system_instruction=SYSTEM_PROMPT
+            ),
         )
     if config.LLM_BACKEND == "openrouter":
         # Wired up in M7 (pinned model, provider sort, reasoning off, request counting).

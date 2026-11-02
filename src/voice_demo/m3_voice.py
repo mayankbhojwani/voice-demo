@@ -26,7 +26,6 @@ from voice_demo import config
 from voice_demo.llm import make_llm
 from voice_demo.m2_chat import PrintReply
 from voice_demo.metrics import LatencyObserver
-from voice_demo.prompts import SYSTEM_PROMPT
 from voice_demo.stt import make_stt
 from voice_demo.tts import make_tts
 
@@ -37,7 +36,7 @@ async def main():
     )
     stt, llm, tts = make_stt(), make_llm(), make_tts()
 
-    context = LLMContext([{"role": "system", "content": SYSTEM_PROMPT}])
+    context = LLMContext()
     aggregators = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
