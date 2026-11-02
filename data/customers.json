@@ -1,0 +1,15 @@
+{
+  "note": "All data is fake. Renewal dates are computed as today + renews_in_days so the demo never goes stale.",
+  "customers": [
+    {"id": "c1", "name": "Ashok Mehta", "policy_number": "SS-48213907", "policy_type": "Motor (car)", "plan": "Comprehensive", "premium_inr": 18450, "cover_inr": 650000, "renews_in_days": 12, "status": "active"},
+    {"id": "c2", "name": "Meera Nair", "policy_number": "SS-77120456", "policy_type": "Health (family floater)", "plan": "Family Care 5L", "premium_inr": 24800, "cover_inr": 500000, "renews_in_days": 9, "status": "active"},
+    {"id": "c3", "name": "Rohan Kapoor", "policy_number": "SS-30984412", "policy_type": "Two-wheeler", "plan": "Third party only", "premium_inr": 3200, "cover_inr": 80000, "renews_in_days": 21, "status": "active"},
+    {"id": "c4", "name": "Sunita Rao", "policy_number": "SS-55601288", "policy_type": "Home", "plan": "Home Secure", "premium_inr": 9600, "cover_inr": 2500000, "renews_in_days": 5, "status": "active"},
+    {"id": "c5", "name": "Imran Sheikh", "policy_number": "SS-90234175", "policy_type": "Term life", "plan": "Term Protect 1Cr", "premium_inr": 14200, "cover_inr": 10000000, "renews_in_days": -2, "status": "in grace period (renewal date passed 2 days ago)"}
+  ],
+  "unavailable_slots": [
+    {"day_offset": 1, "slot": "morning"},
+    {"day_offset": 1, "slot": "afternoon"},
+    {"day_offset": 2, "slot": "evening"}
+  ]
+}

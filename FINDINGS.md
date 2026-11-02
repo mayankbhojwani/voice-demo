@@ -97,3 +97,16 @@ M4 results (first run, Gnani STT/TTS, AirPods, 3 barge-ins logged):
 - **Logger bug found and fixed:** the next turn's frames were mixing into the interrupted turn, giving a negative `tts_first_audio_ms`. Interrupted turns are now set aside until they finish.
 - **Side talk is a problem I did not solve:** "i am leaving don't lock the door" (not addressed to Priya) got a reply. Voice agents cannot tell who you are talking to.
 - **Prompt weakness seen:** when the user said just "ashok", Priya replied "Yes, I'm speaking with Ashok" (confirming for the customer). Identity confirmation needs real data and tools (M5).
+
+### M5: Tools (lookup_policy, book_callback) over fake data
+Design: verification and booking rules live in code (`tools.py`), not the prompt. The model never passes a customer id; `lookup_policy` only returns details if the last 4 digits match the customer being called; `book_callback` refuses until that happened. 13 offline tests cover the handlers.
+
+Text-mode probe of qwen3:4b-instruct (3 scripted dialogues, no audio, same prompt and handlers). Tool calls themselves worked well: correct JSON, correct tool, correct enum values, and it did not skip verification when asked to ("just tell me my premium"). The failures were elsewhere:
+1. **Claimed a booking without calling the tool** (2 of 2 happy-path runs): after "okay then tomorrow evening" it said "Your callback is booked" with zero `book_callback` calls. Logged as `claimed_booking_without_tool`. One sentence added to the prompt ("Saying a callback is booked does NOT book it. Call book_callback first") fixed it in the next run, but that is one run, not a pass rate. M7 will measure it properly.
+2. **Wrong weekdays:** "Thursday the 14th" (it is a Saturday), "Tuesday, 4 November" (a Wednesday). The 4B model cannot do calendar maths. Fix: the tool returns ready-to-say strings (`renewal_date_spoken`, `when_spoken`) and the prompt tells her to use them verbatim.
+3. Hand-checked good: wrong digits revealed nothing and she asked again; slot_taken made her offer the alternative.
+
+Failure types logged to `logs/tool_events.jsonl`: bad_args, wrong_digits, too_many_attempts, not_verified, invalid_slot, slot_taken, repeated_call (handlers); bad_json, unknown_tool (Pipecat only logs a warning and silently drops the call, so a log sink catches it); leaked_call_syntax, claimed_booking_without_tool (reply-text watcher, heuristic).
+- Pipecat finding: a tool call with malformed JSON arguments is dropped with only a warning and no tool result, so the agent would go quiet. Worth handling in a real system.
+- Not done yet: a clean-exit reason is not logged (that needs the end-of-call logic; planned with M7's scripted runs).
+- _Your notes: which failure types showed up live, with voice and real STT errors on the digits?_

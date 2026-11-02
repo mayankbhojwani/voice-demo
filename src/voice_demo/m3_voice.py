@@ -45,13 +45,13 @@ def start_strategies(interruptions: bool, min_words: int):
     ]
 
 
-async def main(interruptions: bool = False, min_words: int = 0):
+async def main(interruptions: bool = False, min_words: int = 0, prompt=None, tools=None, watchers=()):
     transport = LocalAudioTransport(
         LocalAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
-    stt, llm, tts = make_stt(), make_llm(), make_tts()
+    stt, llm, tts = make_stt(), (make_llm(prompt) if prompt else make_llm()), make_tts()
 
-    context = LLMContext()
+    context = LLMContext(tools=tools) if tools else LLMContext()
     aggregators = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
@@ -68,6 +68,7 @@ async def main(interruptions: bool = False, min_words: int = 0):
             stt,
             aggregators.user(),
             llm,
+            *watchers,
             PrintReply(),
             tts,
             transport.output(),
