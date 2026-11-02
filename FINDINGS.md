@@ -64,3 +64,18 @@ User's guesses, in ms, from end of speech:
 - `tok_per_s` is unreliable here (7 to 83) for the same reason: it is computed from frame arrival times, not Ollama's own timing.
 - **Logger finding:** 13 of 18 log lines were incomplete turns (an LLM request that produced no audio, or a second request after Priya spoke). I do not yet know why; candidates are Gnani emitting extra or empty transcripts, or Pipecat re-prompting after an empty turn. The summary now counts only turns where Priya spoke.
 - `LLMContext([system...])` is deprecated in Pipecat 1.9+; the prompt now goes in the LLM service's `system_instruction`.
+
+#### M3 re-run: AirPods (clean mic), Gnani STT + Gnani TTS, local qwen3, n=6 complete turns
+| Stage | My guess | Median | p90 |
+|---|---|---|---|
+| STT (speech end -> final transcript) | 10 | 744 | 1766 |
+| Turn wait (final transcript -> LLM request) | n/a | 258 | 312 |
+| LLM first token | 1000 | 590 | 914 |
+| TTS first audio (from first LLM token) | 500 | 768 | 1356 |
+| Total (speech end -> Priya starts) | n/a | 2466 | 3677 |
+- **Echo was the first big problem.** On laptop speakers Priya transcribed her own voice as the user and looped ("Perfect, I'll have a renewal advisor call you...") and 13 of 18 log lines were phantom turns. AirPods (mic and speaker both on the headset) fixed it. Lesson: no echo cancellation means you cannot talk to a voice agent over speakers; this is why M4 (barge-in) needs care.
+- **Same LLM, very different speed:** first-token median went from 2497 ms (with local Kokoro TTS, on speakers) to 590 ms (Gnani TTS, AirPods). The runs differ in two things, TTS backend and echo, so this is suggestive, not proof that Kokoro starves Ollama on an 8 GB M2. Isolating run: Kokoro + AirPods.
+- Hosted TTS was ~0.2-0.4 s to first byte vs ~1.5 s for Kokoro (from Pipecat's own TTFB metric, in the logs).
+- Where the 2.5 s goes: ~0.74 STT (0.2 of it is the VAD wait, the rest Gnani), 0.26 turn wait, 0.59 LLM, 0.77 TTS. STT is the largest single stage and was my biggest wrong guess (10 ms).
+- Bluetooth: AirPods run the mic at a lower-quality profile; unclear how much it affects accuracy or delay.
+- Logger bug found and fixed: every real turn had a stray second log line with no tokens. Records without a first LLM token are no longer written.

@@ -73,7 +73,9 @@ class LatencyObserver(BaseObserver):
 
     def _flush(self):
         t, self._t = self._t, {}
-        if "llm_request" not in t:
+        # Skip lines where the LLM never produced a token: with a clean mic these were one stray
+        # extra record per turn (an LLMContextFrame seen again after the reply), not real turns.
+        if "llm_first" not in t:
             return
         gen_s = (t["llm_last"] - t["llm_first"]) if "llm_first" in t else None
         tokens = t.get("completion_tokens")
