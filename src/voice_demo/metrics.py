@@ -42,6 +42,7 @@ class LatencyObserver(BaseObserver):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._labels = labels
         self._t = {}
+        self._pending = None  # an interrupted turn waiting for its bot-stopped event
 
     async def on_push_frame(self, data: FramePushed):
         f, now, t = data.frame, time.time(), self._t
@@ -54,17 +55,23 @@ class LatencyObserver(BaseObserver):
             if "llm_request" not in t:
                 t["stt_final"] = now  # last transcript before the LLM was called wins
         elif isinstance(f, LLMContextFrame):
+            if self._pending is not None:  # next turn began; the interrupted one is complete
+                self._write(self._take_pending())
             t.setdefault("llm_request", now)
         elif isinstance(f, LLMTextFrame):
             if "llm_request" in t:
                 t.setdefault("llm_first", now)
                 t["llm_last"] = now
-                if "interrupted" in t and data.first_push:
-                    t["llm_text_after_interrupt"] = t.get("llm_text_after_interrupt", 0) + 1
+            elif self._pending is not None and data.first_push:
+                # Tokens still coming from the cancelled generation (should stay 0).
+                self._pending["llm_text_after_interrupt"] += 1
         elif isinstance(f, InterruptionFrame):
             # Only a barge-in if Priya was mid-reply; the aggregator also interrupts at every turn start.
-            if "llm_first" in t:
-                t.setdefault("interrupted", now)
+            # Move the old turn aside so the new turn's frames do not mix into it.
+            if "llm_first" in t and self._pending is None:
+                t["interrupted"] = now
+                t["llm_text_after_interrupt"] = 0
+                self._pending, self._t = t, {}
         elif isinstance(f, TTSAudioRawFrame):
             t.setdefault("tts_first_audio", now)
         elif isinstance(f, BotStartedSpeakingFrame):
@@ -78,13 +85,26 @@ class LatencyObserver(BaseObserver):
                     kind = "llm" if "LLM" in m.processor.upper() else "tts" if "TTS" in m.processor.upper() else "other"
                     t[f"pipecat_{kind}_ttfb_ms"] = round(m.value * 1000)
         elif isinstance(f, BotStoppedSpeakingFrame):
-            t.setdefault("bot_stopped", now)
-            self._flush()
+            if self._pending is not None and "bot_started" in self._pending:
+                self._pending["bot_stopped"] = now  # how long she kept talking after the interrupt
+                self._write(self._take_pending())
+            else:
+                t.setdefault("bot_stopped", now)
+                self._flush()
         elif isinstance(f, (EndFrame, CancelFrame)):
+            if self._pending is not None:
+                self._write(self._take_pending())
             self._flush()
+
+    def _take_pending(self):
+        t, self._pending = self._pending, None
+        return t
 
     def _flush(self):
         t, self._t = self._t, {}
+        self._write(t)
+
+    def _write(self, t):
         # Skip lines where the LLM never produced a token: with a clean mic these were one stray
         # extra record per turn (an LLMContextFrame seen again after the reply), not real turns.
         if "llm_first" not in t:
@@ -107,6 +127,7 @@ class LatencyObserver(BaseObserver):
             "bot_spoke": "bot_started" in t,
             "interrupted": "interrupted" in t,
             "llm_text_after_interrupt": t.get("llm_text_after_interrupt", 0) if "interrupted" in t else None,
+            "interrupted_mid_speech": ("interrupted" in t and "bot_started" in t) or None,
             "interrupt_to_silence_ms": _ms(t.get("bot_stopped"), t.get("interrupted")),
         }
         with self._path.open("a") as fh:

@@ -49,7 +49,9 @@ def main():
             stops = [r["interrupt_to_silence_ms"] for r in barge if r.get("interrupt_to_silence_ms") is not None]
             leaked = sum(1 for r in barge if r.get("llm_text_after_interrupt"))
             med = f"{statistics.median(stops):.0f} ms" if stops else "n/a"
-            print(f"barge-ins: {len(barge)}; interrupt -> silence median {med}; "
+            mid = sum(1 for r in barge if r.get("interrupted_mid_speech"))
+            print(f"barge-ins: {len(barge)} ({mid} while she was already speaking); "
+                  f"interrupt -> silence median {med}; "
                   f"LLM kept generating after the interrupt in {leaked} of {len(barge)}")
 
 

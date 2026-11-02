@@ -87,3 +87,13 @@ How it works in Pipecat 1.15 (read from the installed source):
 - **Cancelling:** every processor that sees `InterruptionFrame` drops its queued non-system frames. The LLM service's in-flight stream is cancelled and its HTTP stream closed; the TTS service drops its audio contexts and pending text; the output transport drains its audio queue; the assistant aggregator records the reply as interrupted and keeps only what was actually spoken.
 - Open question I test with the logger: does Ollama actually stop generating when the client closes the stream? `llm_text_after_interrupt` counts tokens that still arrive after the interruption; `interrupt_to_silence_ms` is how fast Priya goes quiet.
 - _Your notes: how fast does she stop, what falsely interrupts her, what does she remember of what she was saying?_
+
+M4 results (first run, Gnani STT/TTS, AirPods, 3 barge-ins logged):
+- **Barge-in works.** The log shows "broadcasting interruption" then the LLM stream stops (`processing time` cut to 0.7 s) and the Gnani TTS websocket disconnects. One measured interrupt-to-silence: 377 ms. No LLM tokens arrived after the interruption in any of the 3 (`llm_text_after_interrupt` = 0).
+- **Ollama really stops generating when Pipecat closes the stream.** Direct test: while a 700-token generation was running, a "hi" request waited 24.6 s (Ollama serves one request at a time here). After killing the long request's connection after 1 s, a "hi" took 0.5 s, same as baseline. So cancellation reaches the model, not just Pipecat.
+- **After an interruption the context keeps only what was spoken:** her cut-off reply is stored as a truncated sentence ("...would you like me to book a callback"), so she remembers what the user actually heard.
+- **Cost of a cut-off:** the hosted TTS websocket is torn down and reconnected (about 1.2 s in the log). If you speak again right away, the next reply may start slower.
+- **Many interruptions happen before she makes any sound** (during the ~2.5 s of thinking time), so "time to silence" does not apply; I log `interrupted_mid_speech` separately.
+- **Logger bug found and fixed:** the next turn's frames were mixing into the interrupted turn, giving a negative `tts_first_audio_ms`. Interrupted turns are now set aside until they finish.
+- **Side talk is a problem I did not solve:** "i am leaving don't lock the door" (not addressed to Priya) got a reply. Voice agents cannot tell who you are talking to.
+- **Prompt weakness seen:** when the user said just "ashok", Priya replied "Yes, I'm speaking with Ashok" (confirming for the customer). Identity confirmation needs real data and tools (M5).
