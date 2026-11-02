@@ -79,3 +79,11 @@ User's guesses, in ms, from end of speech:
 - Where the 2.5 s goes: ~0.74 STT (0.2 of it is the VAD wait, the rest Gnani), 0.26 turn wait, 0.59 LLM, 0.77 TTS. STT is the largest single stage and was my biggest wrong guess (10 ms).
 - Bluetooth: AirPods run the mic at a lower-quality profile; unclear how much it affects accuracy or delay.
 - Logger bug found and fixed: every real turn had a stray second log line with no tokens. Records without a first LLM token are no longer written.
+
+### M4: Interruptions (barge-in)
+How it works in Pipecat 1.15 (read from the installed source):
+- **Detecting you:** Silero VAD (in the user aggregator) says speech started. A *start strategy* decides whether that opens a user turn; with `enable_interruptions=True` it calls `broadcast_interruption()`, which sends an `InterruptionFrame` both upstream and downstream. `MinWordsUserTurnStartStrategy` waits for N recognised words first.
+- **Detecting you are done:** *stop strategy*, by default Smart Turn v3 (a small model that listens to the audio and says COMPLETE or INCOMPLETE), with a silence timeout as the backstop.
+- **Cancelling:** every processor that sees `InterruptionFrame` drops its queued non-system frames. The LLM service's in-flight stream is cancelled and its HTTP stream closed; the TTS service drops its audio contexts and pending text; the output transport drains its audio queue; the assistant aggregator records the reply as interrupted and keeps only what was actually spoken.
+- Open question I test with the logger: does Ollama actually stop generating when the client closes the stream? `llm_text_after_interrupt` counts tokens that still arrive after the interruption; `interrupt_to_silence_ms` is how fast Priya goes quiet.
+- _Your notes: how fast does she stop, what falsely interrupts her, what does she remember of what she was saying?_

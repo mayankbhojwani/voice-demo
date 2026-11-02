@@ -18,3 +18,5 @@ GNANI_API_KEY = os.getenv("GNANI_API_KEY", "")
 TTS_BACKEND = os.getenv("TTS_BACKEND", "local")  # local (Kokoro) | gnani
 GNANI_TTS_VOICE = os.getenv("GNANI_TTS_VOICE", "")  # empty = Gnani's default voice
 LATENCY_LOG = os.getenv("LATENCY_LOG", "logs/latency.jsonl")
+
+INTERRUPT_MIN_WORDS = int(os.getenv("INTERRUPT_MIN_WORDS", "0"))  # 0 = cut in on any speech (VAD)

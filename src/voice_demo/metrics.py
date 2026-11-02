@@ -3,6 +3,8 @@
 Timeline of a turn (all wall-clock, seconds):
   speech_end -> stt_final -> llm_request -> llm_first -> tts_first_audio -> bot_started
               stt_ms      turn_wait_ms    llm_ttft_ms   tts_first_audio_ms
+  Barge-in: interrupt_to_silence_ms = InterruptionFrame -> bot stopped speaking;
+  llm_text_after_interrupt = LLM tokens emitted after the interruption (should be 0).
   llm_gen_ms is first token -> last token; tok_per_s is completion_tokens over that window.
 """
 
@@ -15,6 +17,7 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
+    InterruptionFrame,
     LLMContextFrame,
     LLMTextFrame,
     MetricsFrame,
@@ -56,6 +59,12 @@ class LatencyObserver(BaseObserver):
             if "llm_request" in t:
                 t.setdefault("llm_first", now)
                 t["llm_last"] = now
+                if "interrupted" in t and data.first_push:
+                    t["llm_text_after_interrupt"] = t.get("llm_text_after_interrupt", 0) + 1
+        elif isinstance(f, InterruptionFrame):
+            # Only a barge-in if Priya was mid-reply; the aggregator also interrupts at every turn start.
+            if "llm_first" in t:
+                t.setdefault("interrupted", now)
         elif isinstance(f, TTSAudioRawFrame):
             t.setdefault("tts_first_audio", now)
         elif isinstance(f, BotStartedSpeakingFrame):
@@ -68,7 +77,10 @@ class LatencyObserver(BaseObserver):
                 elif isinstance(m, TTFBMetricsData):
                     kind = "llm" if "LLM" in m.processor.upper() else "tts" if "TTS" in m.processor.upper() else "other"
                     t[f"pipecat_{kind}_ttfb_ms"] = round(m.value * 1000)
-        elif isinstance(f, (BotStoppedSpeakingFrame, EndFrame, CancelFrame)):
+        elif isinstance(f, BotStoppedSpeakingFrame):
+            t.setdefault("bot_stopped", now)
+            self._flush()
+        elif isinstance(f, (EndFrame, CancelFrame)):
             self._flush()
 
     def _flush(self):
@@ -93,6 +105,9 @@ class LatencyObserver(BaseObserver):
             "pipecat_llm_ttfb_ms": t.get("pipecat_llm_ttfb_ms"),
             "pipecat_tts_ttfb_ms": t.get("pipecat_tts_ttfb_ms"),
             "bot_spoke": "bot_started" in t,
+            "interrupted": "interrupted" in t,
+            "llm_text_after_interrupt": t.get("llm_text_after_interrupt", 0) if "interrupted" in t else None,
+            "interrupt_to_silence_ms": _ms(t.get("bot_stopped"), t.get("interrupted")),
         }
         with self._path.open("a") as fh:
             fh.write(json.dumps(record) + "\n")

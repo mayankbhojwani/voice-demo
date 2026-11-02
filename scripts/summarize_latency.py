@@ -44,6 +44,14 @@ def main():
             guess = PREDICTED.get(s, "")
             print(f"{s:<20}{len(vals):>4}{statistics.median(vals):>10.0f}{p90(vals):>10.0f}{guess:>10}")
 
+        barge = [r for r in rows if r.get("interrupted")]
+        if barge:
+            stops = [r["interrupt_to_silence_ms"] for r in barge if r.get("interrupt_to_silence_ms") is not None]
+            leaked = sum(1 for r in barge if r.get("llm_text_after_interrupt"))
+            med = f"{statistics.median(stops):.0f} ms" if stops else "n/a"
+            print(f"barge-ins: {len(barge)}; interrupt -> silence median {med}; "
+                  f"LLM kept generating after the interrupt in {leaked} of {len(barge)}")
+
 
 if __name__ == "__main__":
     main()

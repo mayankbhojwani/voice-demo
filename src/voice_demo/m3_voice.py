@@ -19,7 +19,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
-from pipecat.turns.user_start import TranscriptionUserTurnStartStrategy, VADUserTurnStartStrategy
+from pipecat.turns.user_start import (
+    MinWordsUserTurnStartStrategy,
+    TranscriptionUserTurnStartStrategy,
+    VADUserTurnStartStrategy,
+)
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from voice_demo import config
@@ -30,7 +34,18 @@ from voice_demo.stt import make_stt
 from voice_demo.tts import make_tts
 
 
-async def main():
+def start_strategies(interruptions: bool, min_words: int):
+    """How a user turn begins, and whether that also cuts Priya off (barge-in)."""
+    if interruptions and min_words > 0:
+        # Needs N recognised words before cutting in: ignores coughs and "mm-hmm", but is slower.
+        return [MinWordsUserTurnStartStrategy(min_words=min_words)]
+    return [
+        VADUserTurnStartStrategy(enable_interruptions=interruptions),
+        TranscriptionUserTurnStartStrategy(enable_interruptions=interruptions),
+    ]
+
+
+async def main(interruptions: bool = False, min_words: int = 0):
     transport = LocalAudioTransport(
         LocalAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
@@ -42,10 +57,7 @@ async def main():
         user_params=LLMUserAggregatorParams(
             vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
             user_turn_strategies=UserTurnStrategies(
-                start=[
-                    VADUserTurnStartStrategy(enable_interruptions=False),
-                    TranscriptionUserTurnStartStrategy(enable_interruptions=False),
-                ]
+                start=start_strategies(interruptions, min_words)
             ),
         ),
     )
@@ -67,6 +79,8 @@ async def main():
         "tts_backend": config.TTS_BACKEND,
         "llm_backend": config.LLM_BACKEND,
         "llm_model": config.OLLAMA_MODEL,
+        "interruptions": interruptions,
+        "min_words": min_words,
     }
     task = PipelineTask(
         pipeline,
