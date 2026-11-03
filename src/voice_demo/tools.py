@@ -44,8 +44,9 @@ GOODBYES = {
     "wrong_person": "Sorry for the trouble. Have a good day!",
     "verification_failed": "I am sorry, I could not verify your details, so I cannot continue on this call. Thank you for your time. Goodbye.",
     "other": "Thank you for your time. Goodbye.",
+    "no_response": "I cannot hear you, so I will try you again later. Goodbye.",  # set by the idle timeout, not the model
 }
-END_REASONS = tuple(GOODBYES)
+END_REASONS = tuple(r for r in GOODBYES if r != "no_response")  # what the model may pick
 
 
 def spoken(d: date) -> str:
@@ -151,10 +152,17 @@ class CallSession:
         elif reason == "callback_booked" and not self.bookings:
             log_event("failure", tool="end_call", args=args, type="end_reason_mismatch", detail="said callback_booked but nothing was booked")
             reason = "other"
+        return reason, self._finish(reason)
+
+    def idle_hangup(self) -> str:
+        """The customer stayed silent after 'are you still there?': log it and return the goodbye."""
+        return self._finish("no_response")
+
+    def _finish(self, reason: str) -> str:
         self.ended = True
         log_event("call_end", reason=reason, verified=self.verified, bookings=len(self.bookings),
                   failed_attempts=self.failed_attempts)
-        return reason, GOODBYES[reason].format(first=self.customer["name"].split()[0])
+        return GOODBYES[reason].format(first=self.customer["name"].split()[0])
 
     # -- wiring --------------------------------------------------------------------------------
     def tools_schema(self) -> ToolsSchema:
@@ -177,7 +185,15 @@ class CallSession:
             await params.result_callback(result)
 
         async def book(params):
-            await params.result_callback(self.book_callback(params.arguments))
+            result = self.book_callback(params.arguments)
+            if result.get("confirmed"):
+                # Nothing left for the model to decide: say the confirmation from code. This skips a second
+                # LLM call and the wait for its first sentence (about 1.8 s), and cannot misstate the slot.
+                await params.result_callback(result, properties=FunctionCallResultProperties(run_llm=False))
+                await params.llm.push_frame(TTSSpeakFrame(
+                    f"Done, your callback is booked for {result['when_spoken']}. Is there anything else I can help with?"))
+                return
+            await params.result_callback(result)  # failures still go to the model, which offers other slots
 
         async def end(params):
             reason, goodbye = self.end_call(params.arguments)
@@ -222,7 +238,9 @@ class ToolWatcher(FrameProcessor):
             self._text += frame.text
         elif isinstance(frame, LLMFullResponseEndFrame):
             text, self._text = self._text, ""
-            if re.search(r"<tool_call>|\"name\"\s*:\s*\"(lookup_policy|book_callback)\"|```json", text):
+            # Also catches argument JSON spoken as text, e.g. 'endid_call{"reason": "callback_booked"}'.
+            if re.search(r"<tool_call>|\"name\"\s*:\s*\"(lookup_policy|book_callback|end_call)\"|```json"
+                         r"|\{\s*\"(reason|policy_last4|date|slot)\"\s*:", text):
                 log_event("failure", type="leaked_call_syntax", detail=text[:200])
             if (re.search(r"\b(booked|scheduled|confirmed|arranged)\b", text, re.I)
                     and re.search(r"call ?back|advisor", text, re.I) and not self._session.bookings):

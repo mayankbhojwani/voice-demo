@@ -106,7 +106,11 @@ class LatencyObserver(BaseObserver):
     def _write(self, t):
         # Skip lines where the LLM never produced a token: with a clean mic these were one stray
         # extra record per turn (an LLMContextFrame seen again after the reply), not real turns.
-        if "llm_first" not in t:
+        # A scripted turn (tool result spoken by code, no LLM text) has bot_started but no llm_first;
+        # keep it, flagged, so its total latency is still measured.
+        # Require an LLM request too: a bare bot-started event (a later TTS segment of the same reply)
+        # is not a turn, and wrote ~20 empty rows in one call.
+        if "llm_first" not in t and not ("bot_started" in t and "llm_request" in t):
             return
         gen_s = (t["llm_last"] - t["llm_first"]) if "llm_first" in t else None
         tokens = t.get("completion_tokens")
@@ -115,7 +119,9 @@ class LatencyObserver(BaseObserver):
             **self._labels,
             "stt_ms": _ms(t.get("stt_final"), t.get("speech_end")),
             "turn_wait_ms": _ms(t.get("llm_request"), t.get("stt_final")),
-            "llm_ttft_ms": _ms(t.get("llm_first"), t["llm_request"]),
+            "llm_ttft_ms": _ms(t.get("llm_first"), t.get("llm_request")),
+            "scripted": "llm_first" not in t,  # reply spoken by code after a tool call, no LLM text
+            "scripted_tool_ms": _ms(t.get("tts_first_audio"), t.get("llm_request")) if "llm_first" not in t else None,
             "llm_gen_ms": round(gen_s * 1000) if gen_s is not None else None,
             "completion_tokens": tokens,
             "tok_per_s": round((tokens - 1) / gen_s, 1) if tokens and tokens > 1 and gen_s else None,

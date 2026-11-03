@@ -20,4 +20,5 @@ if __name__ == "__main__":
     print(f"Calling {session.customer['name']} (policy ends {session.customer['policy_number'][-4:]}). "
           f"Say the last 4 digits when asked.")
     asyncio.run(main(interruptions=True, min_words=config.INTERRUPT_MIN_WORDS, prompt=prompt,
-                     tools=session.tools_schema(), watchers=[ToolWatcher(session)]))
+                     tools=session.tools_schema(), watchers=[ToolWatcher(session)],
+                     idle_secs=config.IDLE_SECS, on_idle_hangup=session.idle_hangup))

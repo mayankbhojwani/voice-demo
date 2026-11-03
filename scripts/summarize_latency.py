@@ -10,7 +10,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-STAGES = ["stt_ms", "turn_wait_ms", "llm_ttft_ms", "llm_gen_ms", "tts_first_audio_ms", "total_ms", "tok_per_s"]
+STAGES = ["stt_ms", "turn_wait_ms", "llm_ttft_ms", "llm_gen_ms", "tts_first_audio_ms", "scripted_tool_ms", "total_ms", "tok_per_s"]
 # My guesses from FINDINGS.md, recorded before the first M3 run.
 PREDICTED = {"stt_ms": 10, "llm_ttft_ms": 1000, "tts_first_audio_ms": 500}
 
@@ -35,6 +35,10 @@ def main():
         print(f"\nSTT={stt}  TTS={tts}  LLM={model}  ({len(complete)} complete turns, "
               f"{len(rows) - len(complete)} incomplete log lines ignored)")
         rows = complete
+        scripted = [r["total_ms"] for r in rows if r.get("scripted")]
+        if scripted:
+            print(f"scripted turns (spoken by code after a tool call): {len(scripted)}, "
+                  f"total median {statistics.median(scripted):.0f} ms; they have no LLM-text or TTS-wait stages")
         print(f"{'stage':<20}{'n':>4}{'median':>10}{'p90':>10}{'my guess':>10}")
         for s in STAGES:
             vals = [r[s] for r in rows if r.get(s) is not None]

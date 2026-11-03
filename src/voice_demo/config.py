@@ -21,3 +21,4 @@ LATENCY_LOG = os.getenv("LATENCY_LOG", "logs/latency.jsonl")
 
 INTERRUPT_MIN_WORDS = int(os.getenv("INTERRUPT_MIN_WORDS", "0"))  # 0 = cut in on any speech (VAD)
 CUSTOMER_ID = os.getenv("CUSTOMER_ID", "c1")  # which fake customer Priya is calling (data/customers.json)
+IDLE_SECS = float(os.getenv("IDLE_SECS", "20"))  # silence before "are you still there?"; a second silence ends the call
